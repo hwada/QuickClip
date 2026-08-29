@@ -4,7 +4,10 @@ using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Input;
 using System;
 using System.ComponentModel;
+using System.Globalization;
+using System.IO;
 using System.Runtime.InteropServices;
+using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using Windows.Graphics;
@@ -16,6 +19,11 @@ public sealed partial class MainWindow : Window
 {
     private const int CaptureDelayMilliseconds = 80;
     private const byte WindowOpacity = 230;
+    private static readonly string ConfigFilePath = Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+        ".config",
+        "QuickClip",
+        "config.toml");
 
     private readonly IntPtr _windowHandle;
     private bool _isCapturing;
@@ -29,6 +37,8 @@ public sealed partial class MainWindow : Window
 
         _windowHandle = WinRT.Interop.WindowNative.GetWindowHandle(this);
         ConfigureWindow();
+        RestoreWindowPlacement();
+        AppWindow.Closing += AppWindow_Closing;
         Activated += MainWindow_Activated;
     }
 
@@ -42,7 +52,116 @@ public sealed partial class MainWindow : Window
 
     private void CloseButton_Click(object sender, RoutedEventArgs e)
     {
+        SaveWindowPlacement();
         Application.Current.Exit();
+    }
+
+    private void AppWindow_Closing(AppWindow sender, AppWindowClosingEventArgs args)
+    {
+        SaveWindowPlacement();
+    }
+
+    private void RestoreWindowPlacement()
+    {
+        try
+        {
+            if (!File.Exists(ConfigFilePath))
+            {
+                return;
+            }
+
+            int? x = null;
+            int? y = null;
+            int? width = null;
+            int? height = null;
+
+            foreach (string rawLine in File.ReadLines(ConfigFilePath))
+            {
+                string line = rawLine.Split('#', 2)[0].Trim();
+                if (line.Length == 0)
+                {
+                    continue;
+                }
+
+                string[] parts = line.Split('=', 2, StringSplitOptions.TrimEntries);
+                if (parts.Length != 2
+                    || !int.TryParse(
+                        parts[1],
+                        NumberStyles.Integer,
+                        CultureInfo.InvariantCulture,
+                        out int value))
+                {
+                    continue;
+                }
+
+                switch (parts[0])
+                {
+                    case "x":
+                        x = value;
+                        break;
+                    case "y":
+                        y = value;
+                        break;
+                    case "width":
+                        width = value;
+                        break;
+                    case "height":
+                        height = value;
+                        break;
+                }
+            }
+
+            if (x.HasValue
+                && y.HasValue
+                && width is >= 1
+                && height is >= 1)
+            {
+                AppWindow.MoveAndResize(new RectInt32(
+                    x.Value,
+                    y.Value,
+                    width.Value,
+                    height.Value));
+            }
+        }
+        catch (Exception exception)
+        {
+            // A damaged or inaccessible config must not prevent the app from starting.
+            System.Diagnostics.Debug.WriteLine($"Window placement restore failed: {exception}");
+        }
+    }
+
+    private void SaveWindowPlacement()
+    {
+        try
+        {
+            PointInt32 position = AppWindow.Position;
+            SizeInt32 size = AppWindow.Size;
+            string? configDirectory = Path.GetDirectoryName(ConfigFilePath);
+
+            if (configDirectory is null)
+            {
+                return;
+            }
+
+            Directory.CreateDirectory(configDirectory);
+
+            string contents = string.Create(
+                CultureInfo.InvariantCulture,
+                $"# QuickClip window placement{Environment.NewLine}" +
+                $"x = {position.X}{Environment.NewLine}" +
+                $"y = {position.Y}{Environment.NewLine}" +
+                $"width = {size.Width}{Environment.NewLine}" +
+                $"height = {size.Height}{Environment.NewLine}");
+
+            string temporaryPath = ConfigFilePath + ".tmp";
+            File.WriteAllText(temporaryPath, contents, new UTF8Encoding(false));
+            File.Move(temporaryPath, ConfigFilePath, overwrite: true);
+        }
+        catch (Exception exception)
+        {
+            // Failure to persist placement must not prevent the app from closing.
+            System.Diagnostics.Debug.WriteLine($"Window placement save failed: {exception}");
+        }
     }
 
     private async void CaptureSurface_KeyDown(object sender, KeyRoutedEventArgs e)

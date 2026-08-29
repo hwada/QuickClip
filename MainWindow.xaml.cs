@@ -15,7 +15,7 @@ namespace QuickClip;
 public sealed partial class MainWindow : Window
 {
     private const int CaptureDelayMilliseconds = 80;
-    private const byte WindowOpacity = 217; // Approximately 85% opaque.
+    private const byte WindowOpacity = 230;
 
     private readonly IntPtr _windowHandle;
     private bool _isCapturing;

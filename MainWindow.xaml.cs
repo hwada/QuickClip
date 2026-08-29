@@ -8,6 +8,7 @@ using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
 using Windows.Graphics;
+using Windows.System;
 
 namespace QuickClip;
 
@@ -17,6 +18,7 @@ public sealed partial class MainWindow : Window
     private const byte WindowOpacity = 217; // Approximately 85% opaque.
 
     private readonly IntPtr _windowHandle;
+    private bool _isCapturing;
     private bool _isDragging;
     private PointInt32 _dragPointerOrigin;
     private PointInt32 _dragWindowOrigin;
@@ -27,6 +29,51 @@ public sealed partial class MainWindow : Window
 
         _windowHandle = WinRT.Interop.WindowNative.GetWindowHandle(this);
         ConfigureWindow();
+        Activated += MainWindow_Activated;
+    }
+
+    private void MainWindow_Activated(object sender, WindowActivatedEventArgs e)
+    {
+        if (e.WindowActivationState != WindowActivationState.Deactivated)
+        {
+            CaptureSurface.Focus(FocusState.Programmatic);
+        }
+    }
+
+    private void CloseButton_Click(object sender, RoutedEventArgs e)
+    {
+        Application.Current.Exit();
+    }
+
+    private async void CaptureSurface_KeyDown(object sender, KeyRoutedEventArgs e)
+    {
+        PointInt32 position = AppWindow.Position;
+
+        switch (e.Key)
+        {
+            case VirtualKey.Left:
+                AppWindow.Move(new PointInt32(position.X - 1, position.Y));
+                break;
+            case VirtualKey.Right:
+                AppWindow.Move(new PointInt32(position.X + 1, position.Y));
+                break;
+            case VirtualKey.Up:
+                AppWindow.Move(new PointInt32(position.X, position.Y - 1));
+                break;
+            case VirtualKey.Down:
+                AppWindow.Move(new PointInt32(position.X, position.Y + 1));
+                break;
+            case VirtualKey.Enter:
+                if (!e.KeyStatus.WasKeyDown)
+                {
+                    await CaptureWithErrorHandlingAsync();
+                }
+                break;
+            default:
+                return;
+        }
+
+        e.Handled = true;
     }
 
     private void ConfigureWindow()
@@ -108,6 +155,18 @@ public sealed partial class MainWindow : Window
         _isDragging = false;
         e.Handled = true;
 
+        await CaptureWithErrorHandlingAsync();
+    }
+
+    private async Task CaptureWithErrorHandlingAsync()
+    {
+        if (_isCapturing)
+        {
+            return;
+        }
+
+        _isCapturing = true;
+
         try
         {
             await CaptureAreaBehindWindowAsync();
@@ -115,6 +174,11 @@ public sealed partial class MainWindow : Window
         catch (Exception exception)
         {
             System.Diagnostics.Debug.WriteLine($"Screen capture failed: {exception}");
+        }
+        finally
+        {
+            _isCapturing = false;
+            CaptureSurface.Focus(FocusState.Programmatic);
         }
     }
 

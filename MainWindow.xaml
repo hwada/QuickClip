@@ -11,9 +11,31 @@
         BorderBrush="#FF0078D4"
         BorderThickness="1"
         DoubleTapped="CaptureSurface_DoubleTapped"
+        IsTabStop="True"
+        KeyDown="CaptureSurface_KeyDown"
         PointerCanceled="CaptureSurface_PointerReleased"
         PointerCaptureLost="CaptureSurface_PointerCaptureLost"
         PointerMoved="CaptureSurface_PointerMoved"
         PointerPressed="CaptureSurface_PointerPressed"
-        PointerReleased="CaptureSurface_PointerReleased" />
+        PointerReleased="CaptureSurface_PointerReleased">
+
+        <Grid>
+            <Button
+                x:Name="CloseButton"
+                Width="32"
+                Height="32"
+                Padding="0"
+                HorizontalAlignment="Right"
+                VerticalAlignment="Top"
+                AutomationProperties.Name="閉じる"
+                Background="#66000000"
+                Click="CloseButton_Click"
+                Content="&#xE711;"
+                FontFamily="Segoe MDL2 Assets"
+                FontSize="12"
+                Foreground="White"
+                IsTabStop="False"
+                ToolTipService.ToolTip="閉じる" />
+        </Grid>
+    </Border>
 </Window>

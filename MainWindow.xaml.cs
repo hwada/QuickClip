@@ -18,6 +18,7 @@ namespace QuickClip;
 public sealed partial class MainWindow : Window
 {
     private const int CaptureDelayMilliseconds = 80;
+    private const int MinimumWindowSideLength = 10;
     private const byte WindowOpacity = 230;
     private static readonly string ConfigFilePath = Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
@@ -113,8 +114,8 @@ public sealed partial class MainWindow : Window
 
             if (x.HasValue
                 && y.HasValue
-                && width is >= 1
-                && height is >= 1)
+                && width is >= MinimumWindowSideLength
+                && height is >= MinimumWindowSideLength)
             {
                 AppWindow.MoveAndResize(new RectInt32(
                     x.Value,
@@ -348,7 +349,9 @@ public sealed partial class MainWindow : Window
             byte[] pixels = ReadBitmapPixels(bitmap, width, height);
             DetectedRectangle? rectangle = ImageRectangleDetector.FindLargest(pixels, width, height);
 
-            if (rectangle is DetectedRectangle detected)
+            if (rectangle is DetectedRectangle detected
+                && detected.Width >= MinimumWindowSideLength
+                && detected.Height >= MinimumWindowSideLength)
             {
                 AppWindow.MoveAndResize(new RectInt32(
                     windowBounds.Left + detected.X,

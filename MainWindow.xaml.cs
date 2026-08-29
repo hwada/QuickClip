@@ -188,6 +188,12 @@ public sealed partial class MainWindow : Window
                     await CaptureWithErrorHandlingAsync();
                 }
                 break;
+            case VirtualKey.F1:
+                if (!e.KeyStatus.WasKeyDown)
+                {
+                    await FitWindowToLargestRectangleAsync();
+                }
+                break;
             default:
                 return;
         }
@@ -298,6 +304,119 @@ public sealed partial class MainWindow : Window
         {
             _isCapturing = false;
             CaptureSurface.Focus(FocusState.Programmatic);
+        }
+    }
+
+    private async Task FitWindowToLargestRectangleAsync()
+    {
+        if (_isCapturing)
+        {
+            return;
+        }
+
+        _isCapturing = true;
+        IntPtr bitmap = IntPtr.Zero;
+
+        try
+        {
+            if (!NativeMethods.GetWindowRect(_windowHandle, out NativeMethods.RECT windowBounds))
+            {
+                throw new Win32Exception(Marshal.GetLastWin32Error());
+            }
+
+            int width = windowBounds.Right - windowBounds.Left;
+            int height = windowBounds.Bottom - windowBounds.Top;
+            if (width <= 0 || height <= 0)
+            {
+                return;
+            }
+
+            NativeMethods.ShowWindow(_windowHandle, NativeMethods.SW_HIDE);
+
+            try
+            {
+                await Task.Delay(CaptureDelayMilliseconds);
+                NativeMethods.DwmFlush();
+                bitmap = CaptureScreenRegion(windowBounds.Left, windowBounds.Top, width, height);
+            }
+            finally
+            {
+                NativeMethods.ShowWindow(_windowHandle, NativeMethods.SW_SHOW);
+                NativeMethods.SetForegroundWindow(_windowHandle);
+            }
+
+            byte[] pixels = ReadBitmapPixels(bitmap, width, height);
+            DetectedRectangle? rectangle = ImageRectangleDetector.FindLargest(pixels, width, height);
+
+            if (rectangle is DetectedRectangle detected)
+            {
+                AppWindow.MoveAndResize(new RectInt32(
+                    windowBounds.Left + detected.X,
+                    windowBounds.Top + detected.Y,
+                    detected.Width,
+                    detected.Height));
+            }
+        }
+        catch (Exception exception)
+        {
+            System.Diagnostics.Debug.WriteLine($"Rectangle detection failed: {exception}");
+        }
+        finally
+        {
+            if (bitmap != IntPtr.Zero)
+            {
+                NativeMethods.DeleteObject(bitmap);
+            }
+
+            _isCapturing = false;
+            CaptureSurface.Focus(FocusState.Programmatic);
+        }
+    }
+
+    private static byte[] ReadBitmapPixels(IntPtr bitmap, int width, int height)
+    {
+        byte[] pixels = new byte[checked(width * height * 4)];
+        var bitmapInfo = new NativeMethods.BITMAPINFO
+        {
+            Header = new NativeMethods.BITMAPINFOHEADER
+            {
+                Size = (uint)Marshal.SizeOf<NativeMethods.BITMAPINFOHEADER>(),
+                Width = width,
+                Height = -height,
+                Planes = 1,
+                BitCount = 32,
+                Compression = NativeMethods.BI_RGB,
+                SizeImage = (uint)pixels.Length
+            }
+        };
+
+        IntPtr screenDc = NativeMethods.GetDC(IntPtr.Zero);
+        if (screenDc == IntPtr.Zero)
+        {
+            throw new Win32Exception(Marshal.GetLastWin32Error());
+        }
+
+        try
+        {
+            int scanLines = NativeMethods.GetDIBits(
+                screenDc,
+                bitmap,
+                0,
+                (uint)height,
+                pixels,
+                ref bitmapInfo,
+                NativeMethods.DIB_RGB_COLORS);
+
+            if (scanLines != height)
+            {
+                throw new Win32Exception(Marshal.GetLastWin32Error());
+            }
+
+            return pixels;
+        }
+        finally
+        {
+            NativeMethods.ReleaseDC(IntPtr.Zero, screenDc);
         }
     }
 
@@ -456,6 +575,8 @@ public sealed partial class MainWindow : Window
         internal const uint CF_BITMAP = 2;
         internal const uint SRCCOPY = 0x00CC0020;
         internal const uint CAPTUREBLT = 0x40000000;
+        internal const uint BI_RGB = 0;
+        internal const uint DIB_RGB_COLORS = 0;
 
         [StructLayout(LayoutKind.Sequential)]
         internal struct POINT
@@ -471,6 +592,38 @@ public sealed partial class MainWindow : Window
             internal int Top;
             internal int Right;
             internal int Bottom;
+        }
+
+        [StructLayout(LayoutKind.Sequential)]
+        internal struct BITMAPINFOHEADER
+        {
+            internal uint Size;
+            internal int Width;
+            internal int Height;
+            internal ushort Planes;
+            internal ushort BitCount;
+            internal uint Compression;
+            internal uint SizeImage;
+            internal int XPelsPerMeter;
+            internal int YPelsPerMeter;
+            internal uint ColorsUsed;
+            internal uint ColorsImportant;
+        }
+
+        [StructLayout(LayoutKind.Sequential)]
+        internal struct RGBQUAD
+        {
+            internal byte Blue;
+            internal byte Green;
+            internal byte Red;
+            internal byte Reserved;
+        }
+
+        [StructLayout(LayoutKind.Sequential)]
+        internal struct BITMAPINFO
+        {
+            internal BITMAPINFOHEADER Header;
+            internal RGBQUAD Colors;
         }
 
         internal static IntPtr GetWindowLongPtr(IntPtr window, int index)
@@ -537,6 +690,16 @@ public sealed partial class MainWindow : Window
 
         [DllImport("gdi32.dll", SetLastError = true)]
         internal static extern IntPtr CreateCompatibleBitmap(IntPtr deviceContext, int width, int height);
+
+        [DllImport("gdi32.dll", SetLastError = true)]
+        internal static extern int GetDIBits(
+            IntPtr deviceContext,
+            IntPtr bitmap,
+            uint startScan,
+            uint scanLines,
+            [Out] byte[] bits,
+            ref BITMAPINFO bitmapInfo,
+            uint usage);
 
         [DllImport("gdi32.dll")]
         internal static extern IntPtr SelectObject(IntPtr deviceContext, IntPtr graphicObject);

@@ -1,0 +1,10 @@
+{
+  "profiles": {
+    "QuickClip (Package)": {
+      "commandName": "MsixPackage"
+    },
+    "QuickClip (Unpackaged)": {
+      "commandName": "Project"
+    }
+  }
+}
